@@ -1,0 +1,79 @@
+---
+title: "Predictive Modeling"
+author: "Larry Colucci"
+date: "December 17, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Predictive Modeling Final Assignment
+
+Project is to review data from physical measurement devices used when test subjects were performing exercises correctly and incorrectly.  Based on test data, predict 20 new samples.
+
+## How I built the model
+I decided to try a random forest model, and see how that worked.  I started by importing the data, and doing some initial exploration to assess pre-processing needs.  I did a histogram of the response variable 'classe'; it was slightly skewed to the value 'A' but not enough to justify normalization or other transforms.
+
+```{r echo = TRUE}
+library(caret)
+set.seed(1122)
+
+inTrain <- read.csv("c:/devl/coursera/stat inf/pml-training.csv", na.strings=c("NA","#DIV/0!",""),stringsAsFactors = FALSE)
+inTest <- read.csv('c:/devl/coursera/stat inf/pml-testing.csv', na.strings=c("NA","#DIV/0!",""),stringsAsFactors = FALSE)
+plot(as.factor(inTrain$classe), as.factor(inTrain$user_name))
+```
+
+I plotted a few other variables, and decided to remove the ones that were character/time based, and also those which were completely or largely NAs.  This left 53 predictor variables.
+```{r echo=TRUE}
+char.fields <- grepl("X|timestamp|user_name|new_window|problem_id", names(inTrain))
+inTrain <- inTrain[, which(char.fields ==FALSE)]
+char.fields <- grepl("X|timestamp|user_name|new_window|problem_id", names(inTest))
+inTest <- inTest[, which(char.fields == FALSE)]
+
+#remove fields with NAs
+inTrain <-inTrain[,colSums(is.na(inTrain)) == 0]
+inTest <-inTest[,colSums(is.na(inTest)) == 0]
+```
+
+I ran a correlation analysis to see if variables had strong correlation; there were many that were greater than abs(.8).  I plotted and visually inspected a few relationships; none that I viewed were simple ratios.  I did notice one set that had a single outlier, and so removed that row.
+
+```{r echo=TRUE}
+#check correlation
+M <- abs(cor(inTrain[,-54]))
+diag(M) <- 0
+which(M > 0.8, arr.ind=T)
+#many with some corr; none have obvious simple relationship
+#46/47 correlation has an obvious outlier, remove row
+inTrain <- subset(inTrain, inTrain[47] < 10)
+```
+
+
+To be able to compute out of sample error, I segmented the training data into a train and test set.  I chose 80% in the train set, to include as much data in the model build as is safe.
+
+
+From there I ran the random forest model (from the caret package).  Though processing time was large, it seemed to come back with a solid model.
+```{r}
+knitr::opts_chunk$set(cache=TRUE)
+dp <- createDataPartition(inTrain$classe, p=0.8, list = FALSE)
+
+inTrain.train <- inTrain[dp,]
+inTrain.test <- inTrain[-dp,]
+whole.rf <- train(classe ~ ., data = inTrain.train, method='rf')
+
+pred.rf <- predict(whole.rf, newdata = inTest)
+
+```
+
+
+## Cross validation
+Due to the nature of the random forest model, stand alone cross validation was not used. The random forest model used a bootstrapped resample 25 times.
+
+## OUt of Sample error
+```{r echo=TRUE}
+confusionMatrix(inTrain.test$classe, predict(whole.rf, inTrain.test))
+out.of.sample.error <- sum(predict(whole.rf, inTrain.test) == inTrain.test$classe) / length(predict(whole.rf, inTrain.test))
+
+```
+The out of sample error is 0.0017.
